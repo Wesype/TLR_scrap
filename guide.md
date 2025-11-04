@@ -140,6 +140,6 @@ C'est normal si vous n'avez pas de messages non lus !
 Pour toute question, consulter :
 - `README.md` : Documentation complète
 - `exemple_utilisation.py` : 4 exemples d'usage avancé
-- Code source : Commenté et documenté
+- Code source : Commenté et documenté ! :D
 
 Bonne extraction ! 🎉
