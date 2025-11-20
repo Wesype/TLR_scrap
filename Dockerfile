@@ -1,5 +1,5 @@
 # Utiliser l'image officielle Playwright avec Python
-FROM mcr.microsoft.com/playwright/python:v1.48.0-noble
+FROM mcr.microsoft.com/playwright/python:v1.56.0-noble
 
 # Définir le répertoire de travail
 WORKDIR /app
@@ -23,5 +23,5 @@ ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
 # Railway utilise --ipc=host automatiquement
 ENV PLAYWRIGHT_CHROMIUM_ARGS="--no-sandbox --disable-setuid-sandbox"
 
-# Commande par défaut (sera overridée par Railway Cron)
-CMD ["python", "main.py", "--help"]
+# Commande par défaut
+CMD ["python", "main.py", "--juridiction", "TA93", "--messages-lus", "--max-messages", "2", "--webhook", "https://primary-production-94c2e.up.railway.app/webhook-test/467a3692-94de-45bc-a532-cf9feb8ad5e4"]
