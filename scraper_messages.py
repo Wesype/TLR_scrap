@@ -9,9 +9,11 @@ from typing import List, Dict
 from bs4 import BeautifulSoup
 from crawl4ai import AsyncWebCrawler, CrawlerRunConfig
 import re
+import base64
 
 from config import TelecoursConfig
-from utils import save_json, save_html, compte_pdfs_dossier, taille_dossier_pdfs
+from utils import save_json, save_html, compte_pdfs_dossier, taille_dossier_pdfs, normaliser_objet, generer_nom_fichier_courrier
+from notifs import JuridictionNotification
 
 
 class MessageScraper:
@@ -27,16 +29,47 @@ class MessageScraper:
         soup = BeautifulSoup(html, 'html.parser')
         
         resultats = {
-            'hrefs_directs': [],
-            'onclick': []
+            'courrier_envoye': None,  # Le PDF principal du courrier envoyé
+            'hrefs_directs': [],      # Autres PDFs avec href direct
+            'onclick': []             # PDFs onclick (accusés)
         }
         
-        # 1. PDFs avec href direct
+        # Chercher la section "Courrier envoyé"
+        courrier_envoye_section = None
+        for td in soup.find_all('td'):
+            if td.get_text(strip=True) == 'Courrier envoyé':
+                # Trouver le parent <tr> puis le <td> suivant qui contient le PDF
+                tr_parent = td.find_parent('tr')
+                if tr_parent:
+                    courrier_envoye_section = tr_parent
+                break
+        
+        # 1. Extraire le PDF du "Courrier envoyé" (prioritaire)
+        if courrier_envoye_section:
+            # Chercher le lien PDF dans cette section
+            for link in courrier_envoye_section.find_all('a', href=True):
+                href = link.get('href')
+                if href and '.pdf' in href.lower():
+                    nom_fichier = href.split('/')[-1]
+                    resultats['courrier_envoye'] = {
+                        'id': link.get('id', ''),
+                        'nom': nom_fichier,
+                        'href': href,
+                        'class': ' '.join(link.get('class', [])),
+                        'text': link.get_text(strip=True)
+                    }
+                    break  # Un seul PDF dans "Courrier envoyé"
+        
+        # 2. Autres PDFs avec href direct (hors courrier envoyé)
         for link in soup.find_all('a', href=True):
             href = link.get('href')
             
             if href and '.pdf' in href.lower():
                 nom_fichier = href.split('/')[-1]
+                
+                # Vérifier si ce n'est pas le PDF du courrier envoyé
+                if resultats['courrier_envoye'] and nom_fichier == resultats['courrier_envoye']['nom']:
+                    continue  # Ignorer, déjà traité
                 
                 resultats['hrefs_directs'].append({
                     'id': link.get('id', ''),
@@ -46,7 +79,7 @@ class MessageScraper:
                     'text': link.get_text(strip=True)
                 })
         
-        # 2. PDFs avec classe hplGenFichier (accusés)
+        # 3. PDFs avec classe hplGenFichier (accusés)
         for link in soup.find_all('a', class_='hplGenFichier'):
             link_id = link.get('id', '')
             link_text = link.get_text(strip=True)
@@ -65,23 +98,136 @@ class MessageScraper:
         crawler: AsyncWebCrawler,
         html_message: str,
         msg_id: str,
-        dossier: str,
-        url_actuelle: str
+        dossier_pdfs: str,
+        url_actuelle: str,
+        objet_normalise: str = None,
+        dossier_complet: str = None,
+        date_message: str = None
     ) -> List[Dict]:
-        """Télécharge tous les PDFs d'un message"""
+        """Télécharge tous les PDFs d'un message
+        
+        Args:
+            crawler: Instance du crawler
+            html_message: HTML du message
+            msg_id: ID du message
+            dossier_pdfs: Chemin du dossier de destination des PDFs
+            url_actuelle: URL actuelle
+            objet_normalise: Objet normalisé du message (pour nomenclature)
+            dossier_complet: Champ dossier complet (pour extraire nom client)
+            date_message: Date du message (pour nomenclature)
+        """
         
         pdfs = await self.extraire_liens_pdf(html_message)
         
-        nb_total = len(pdfs['hrefs_directs']) + len(pdfs['onclick'])
+        nb_courrier = 1 if pdfs['courrier_envoye'] else 0
+        nb_total = nb_courrier + len(pdfs['hrefs_directs']) + len(pdfs['onclick'])
         
         if nb_total == 0:
             return []
         
         print(f"      {nb_total} PDF(s) trouvé(s)")
+        if pdfs['courrier_envoye']:
+            print(f"         - 1 Courrier envoyé (sera renommé selon nomenclature)")
         
         fichiers_telecharges = []
         
-        # Télécharger les PDFs avec href direct
+        # Télécharger le PDF du "Courrier envoyé" en premier (avec nomenclature)
+        if pdfs['courrier_envoye']:
+            print(f"      Téléchargement du Courrier envoyé...")
+            
+            pdf_info = pdfs['courrier_envoye']
+            href = pdf_info['href']
+            if href.startswith('/'):
+                pdf_url = f"https://www.telerecours.juradm.fr{href}"
+            else:
+                pdf_url = href
+            
+            # Générer le nom selon la nomenclature
+            if objet_normalise and dossier_complet and date_message:
+                nom_fichier_final = generer_nom_fichier_courrier(
+                    objet_normalise=objet_normalise,
+                    dossier=dossier_complet,
+                    date=date_message,
+                    nom_fichier_original=pdf_info['nom']
+                )
+            else:
+                # Fallback si les infos manquent
+                nom_fichier_final = f"{msg_id}_{pdf_info['nom']}"
+            
+            # JavaScript fetch + blob
+            js_download = f"""
+            (async () => {{
+                try {{
+                    const response = await fetch('{pdf_url}');
+                    if (!response.ok) return;
+                    
+                    const blob = await response.blob();
+                    const url = window.URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.style.display = 'none';
+                    a.href = url;
+                    a.download = '{pdf_info['nom']}';
+                    
+                    document.body.appendChild(a);
+                    a.click();
+                    
+                    await new Promise(resolve => setTimeout(resolve, 1000));
+                    
+                    window.URL.revokeObjectURL(url);
+                    document.body.removeChild(a);
+                }} catch (error) {{
+                    console.error('Erreur téléchargement:', error);
+                }}
+            }})();
+            """
+            
+            config_download = CrawlerRunConfig(
+                session_id=self.config.session_id,
+                js_code=js_download,
+                js_only=True,
+                page_timeout=15000,
+                cache_mode=0,
+                verbose=False
+            )
+            
+            try:
+                await crawler.arun(url=url_actuelle, config=config_download)
+                await asyncio.sleep(3)
+                
+                # Chercher le PDF téléchargé
+                dossier_racine = Path(dossier_pdfs).parent
+                chemin_racine = dossier_racine / pdf_info['nom']
+                chemin_final = Path(dossier_pdfs) / nom_fichier_final
+                
+                pdf_path = None
+                if chemin_racine.exists():
+                    chemin_racine.rename(chemin_final)
+                    pdf_path = chemin_final
+                elif chemin_final.exists():
+                    pdf_path = chemin_final
+                
+                # Convertir en base64
+                if pdf_path and pdf_path.exists():
+                    with open(pdf_path, 'rb') as pdf_file:
+                        pdf_base64 = base64.b64encode(pdf_file.read()).decode('utf-8')
+                    
+                    fichiers_telecharges.append({
+                        'type': 'courrier_envoye',
+                        'nom_original': pdf_info['nom'],
+                        'nom_fichier': nom_fichier_final,
+                        'contenu_base64': pdf_base64
+                    })
+                    print(f"         ✓ {nom_fichier_final} (nomenclature appliquée)")
+                    
+                    # Supprimer le fichier après conversion
+                    pdf_path.unlink()
+                
+            except Exception as e:
+                print(f"         ✗ Erreur: {pdf_info['nom']}")
+            
+            await asyncio.sleep(1)
+        
+        # Télécharger les autres PDFs avec href direct
         if pdfs['hrefs_directs']:
             print(f"      Téléchargement de {len(pdfs['hrefs_directs'])} PDF(s)...")
             
@@ -136,27 +282,33 @@ class MessageScraper:
                     
                     # Les PDFs sont téléchargés dans le dossier racine pdfs/
                     # Il faut les chercher là et les déplacer vers pdfs/TA78/
-                    dossier_racine = Path(dossier).parent  # pdfs/ au lieu de pdfs/TA78/
+                    dossier_racine = Path(dossier_pdfs).parent  # pdfs/ au lieu de pdfs/TA78/
                     chemin_racine = dossier_racine / pdf_info['nom']
-                    chemin_final = Path(dossier) / nom_fichier
+                    chemin_final = Path(dossier_pdfs) / nom_fichier
                     
                     # Chercher dans le dossier racine et déplacer
+                    pdf_path = None
                     if chemin_racine.exists():
                         chemin_racine.rename(chemin_final)
-                        fichiers_telecharges.append({
-                            'type': 'href_direct',
-                            'nom_original': pdf_info['nom'],
-                            'chemin': str(chemin_final)
-                        })
-                        print(f"         ✓ {pdf_info['nom']}")
+                        pdf_path = chemin_final
                     elif chemin_final.exists():
-                        # Déjà au bon endroit
+                        pdf_path = chemin_final
+                    
+                    # Convertir le PDF en base64
+                    if pdf_path and pdf_path.exists():
+                        with open(pdf_path, 'rb') as pdf_file:
+                            pdf_base64 = base64.b64encode(pdf_file.read()).decode('utf-8')
+                        
                         fichiers_telecharges.append({
                             'type': 'href_direct',
                             'nom_original': pdf_info['nom'],
-                            'chemin': str(chemin_final)
+                            'nom_fichier': nom_fichier,
+                            'contenu_base64': pdf_base64
                         })
-                        print(f"         ✓ {pdf_info['nom']}")
+                        print(f"         ✓ {pdf_info['nom']} (converti en base64)")
+                        
+                        # Supprimer le fichier PDF après conversion
+                        pdf_path.unlink()
                     
                 except Exception as e:
                     print(f"         ✗ Erreur: {pdf_info['nom']}")
@@ -165,6 +317,8 @@ class MessageScraper:
         
         # Cliquer sur les PDFs onclick (accusés)
         if pdfs['onclick']:
+            print(f"      Téléchargement de {len(pdfs['onclick'])} PDF(s) onclick...")
+            
             for pdf_info in pdfs['onclick']:
                 js_click = f"""
                 await new Promise(resolve => setTimeout(resolve, 300));
@@ -183,9 +337,41 @@ class MessageScraper:
                 
                 try:
                     await crawler.arun(url=url_actuelle, config=config_click)
-                    await asyncio.sleep(2)
-                except:
-                    pass
+                    await asyncio.sleep(3)
+                    
+                    # Chercher le PDF téléchargé
+                    dossier_racine = Path(dossier_pdfs).parent
+                    chemin_final = Path(dossier_pdfs) / f"{msg_id}_{pdf_info['nom_suggeré']}"
+                    
+                    # Chercher tous les PDFs récemment téléchargés
+                    import time
+                    pdfs_recents = []
+                    for pdf_file in dossier_racine.glob("*.pdf"):
+                        if time.time() - pdf_file.stat().st_mtime < 10:  # Modifié il y a moins de 10s
+                            pdfs_recents.append(pdf_file)
+                    
+                    if pdfs_recents:
+                        # Prendre le plus récent
+                        pdf_path = max(pdfs_recents, key=lambda p: p.stat().st_mtime)
+                        pdf_path.rename(chemin_final)
+                        
+                        # Convertir en base64
+                        with open(chemin_final, 'rb') as pdf_file:
+                            pdf_base64 = base64.b64encode(pdf_file.read()).decode('utf-8')
+                        
+                        fichiers_telecharges.append({
+                            'type': 'onclick',
+                            'nom_original': pdf_info['text'],
+                            'nom_fichier': f"{msg_id}_{pdf_info['nom_suggeré']}",
+                            'contenu_base64': pdf_base64
+                        })
+                        print(f"         ✓ {pdf_info['text']} (converti en base64)")
+                        
+                        # Supprimer le fichier
+                        chemin_final.unlink()
+                    
+                except Exception as e:
+                    print(f"         ✗ Erreur onclick: {pdf_info['text']}")
                 
                 await asyncio.sleep(1)
         
@@ -298,6 +484,9 @@ class MessageScraper:
                 rapporteur = tds[4].get_text(strip=True)
                 date = tds[5].get_text(strip=True)
                 
+                # Normaliser l'objet selon les règles métier
+                objet_normalise = normaliser_objet(objet)
+                
                 liste_messages.append({
                     'index': i,
                     'msg_id': msg_id,
@@ -305,7 +494,8 @@ class MessageScraper:
                     'statut': statut,
                     'expediteur': expediteur,
                     'dossier': dossier,
-                    'objet': objet,
+                    'objet': objet_normalise,
+                    'objet_original': objet,  # Conserver l'objet original pour référence
                     'rapporteur': rapporteur,
                     'date': date
                 })
@@ -345,12 +535,21 @@ class MessageScraper:
                 crawler=crawler,
                 html_message=result_detail.html,
                 msg_id=msg['msg_id'],
-                dossier=dossier_pdfs,
-                url_actuelle=result_detail.url
+                dossier_pdfs=dossier_pdfs,
+                url_actuelle=result_detail.url,
+                objet_normalise=msg['objet'],
+                dossier_complet=msg['dossier'],
+                date_message=msg['date']
             )
             
             msg['fichiers_telecharges'] = fichiers
-            msg['html_complet'] = result_detail.cleaned_html
+            
+            # Vérifier s'il y a des PDFs supplémentaires (autres que courrier envoyé et accusés)
+            pdfs_supplementaires = [f for f in fichiers if f['type'] == 'href_direct']
+            msg['pdf_supplementaire'] = 'oui' if pdfs_supplementaires else 'non'
+            
+            # Ne pas inclure le HTML complet dans le JSON (trop volumineux)
+            # msg['html_complet'] = result_detail.cleaned_html
             
             messages_details.append(msg)
             
@@ -381,12 +580,12 @@ class MessageScraper:
         # JSON
         save_json(messages_details, juridiction_dir / f"messages_{code_juridiction}.json")
         
-        # HTML individuels
-        for msg in messages_details:
-            save_html(
-                msg['html_complet'],
-                juridiction_dir / f"message_{msg['msg_id']}.html"
-            )
+        # HTML individuels (désactivé car non nécessaire)
+        # for msg in messages_details:
+        #     save_html(
+        #         msg['html_complet'],
+        #         juridiction_dir / f"message_{msg['msg_id']}.html"
+        #     )
         
         # Résumé
         nb_pdfs = compte_pdfs_dossier(self.config.get_pdfs_dir(code_juridiction))
@@ -398,3 +597,53 @@ class MessageScraper:
         print(f"   PDFs: {nb_pdfs} ({taille_pdfs:.1f} Mo)")
         
         return messages_details
+
+
+async def scrape_juridiction(
+    crawler: AsyncWebCrawler,
+    juridiction: JuridictionNotification,
+    config: TelecoursConfig
+) -> Dict:
+    """
+    Fonction wrapper pour scraper une juridiction (compatible avec n8n_wrapper)
+    
+    Args:
+        crawler: Instance du crawler
+        juridiction: Objet Juridiction à scraper
+        config: Configuration Télérecours
+        
+    Returns:
+        Dict contenant les résultats du scraping
+    """
+    from notifs import NotificationDetector
+    
+    # Sélectionner la juridiction
+    detector = NotificationDetector(config)
+    if not await detector.selectionner_juridiction(crawler, juridiction):
+        return {
+            'success': False,
+            'error': f'Impossible de sélectionner la juridiction {juridiction.code}',
+            'messages': [],
+            'output_file': None
+        }
+    
+    # Créer le scraper (pas besoin de cookies pour cette version)
+    scraper = MessageScraper(config, {})
+    
+    # Scraper les messages
+    messages = await scraper.scraper_tous_messages(
+        crawler=crawler,
+        code_juridiction=juridiction.code,
+        messages_non_lus_seulement=True,
+        max_messages=100
+    )
+    
+    # Chemin du fichier JSON de sortie
+    output_file = config.get_juridiction_dir(juridiction.code) / f"messages_{juridiction.code}.json"
+    
+    return {
+        'success': True,
+        'messages': messages,
+        'output_file': str(output_file) if output_file.exists() else None,
+        'nb_messages': len(messages) if messages else 0
+    }

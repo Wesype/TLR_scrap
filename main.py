@@ -12,6 +12,8 @@ import asyncio
 import argparse
 import getpass
 import time
+import os
+import json
 from pathlib import Path
 from crawl4ai import AsyncWebCrawler, BrowserConfig
 
@@ -19,7 +21,41 @@ from config import TelecoursConfig
 from auth import TelecoursAuth
 from notifs import NotificationDetector
 from scraper_messages import MessageScraper
-from utils import print_header, print_summary, compte_pdfs_dossier
+from utils import print_header, print_summary, compte_pdfs_dossier, send_webhook
+
+
+async def envoyer_resultats_webhook(config: TelecoursConfig, juridictions: list):
+    """Envoie les résultats de toutes les juridictions vers le webhook"""
+    
+    print("\n📤 Envoi des résultats vers le webhook...")
+    
+    tous_les_messages = []
+    
+    for juridiction in juridictions:
+        json_file = config.get_juridiction_dir(juridiction.code) / f"messages_{juridiction.code}.json"
+        
+        if json_file.exists():
+            with open(json_file, 'r', encoding='utf-8') as f:
+                messages = json.load(f)
+                
+                # Ajouter le code juridiction à chaque message
+                for msg in messages:
+                    msg['code_juridiction'] = juridiction.code
+                    msg['nom_juridiction'] = juridiction.nom
+                
+                tous_les_messages.extend(messages)
+    
+    if tous_les_messages:
+        payload = {
+            'timestamp': time.strftime('%Y-%m-%d %H:%M:%S'),
+            'nb_juridictions': len(juridictions),
+            'nb_messages_total': len(tous_les_messages),
+            'messages': tous_les_messages
+        }
+        
+        send_webhook(config.webhook_url, payload)
+    else:
+        print("⚠️  Aucun message à envoyer")
 
 
 async def main_auto(config: TelecoursConfig):
@@ -107,6 +143,10 @@ async def main_auto(config: TelecoursConfig):
         duration = time.time() - start_time
         print_summary(juridictions_traitees, total_messages, total_pdfs, duration)
         
+        # Envoyer webhook si configuré
+        if config.webhook_url:
+            await envoyer_resultats_webhook(config, juridictions)
+        
         await crawler.crawler_strategy.kill_session(config.session_id)
 
 
@@ -172,6 +212,10 @@ async def main_juridiction(config: TelecoursConfig, code_juridiction: str):
         nb_pdfs = compte_pdfs_dossier(config.get_pdfs_dir(code_juridiction))
         
         print_summary(1, len(messages) if messages else 0, nb_pdfs, duration)
+        
+        # Envoyer webhook si configuré
+        if config.webhook_url:
+            await envoyer_resultats_webhook(config, [juridiction_cible])
         
         await crawler.crawler_strategy.kill_session(config.session_id)
 
@@ -284,6 +328,10 @@ async def main_interactif(config: TelecoursConfig):
             nb_pdfs = compte_pdfs_dossier(config.get_pdfs_dir(code))
             
             print_summary(1, len(messages) if messages else 0, nb_pdfs, duration)
+            
+            # Envoyer webhook si configuré
+            if config.webhook_url:
+                await envoyer_resultats_webhook(config, [juridiction_cible])
         
         await crawler.crawler_strategy.kill_session(config.session_id)
 
@@ -330,6 +378,11 @@ def main():
         type=str,
         help="Mot de passe Télérecours (sinon lu depuis TELERECOURS_PASSWORD ou demandé)"
     )
+    parser.add_argument(
+        '--webhook',
+        type=str,
+        help="URL du webhook pour envoyer les résultats JSON"
+    )
     
     args = parser.parse_args()
     
@@ -337,7 +390,8 @@ def main():
     config = TelecoursConfig(
         headless=not args.no_headless,  # headless par défaut, sauf si --no-headless
         max_messages_par_juridiction=args.max_messages,
-        scraper_messages_lus=args.messages_lus
+        scraper_messages_lus=args.messages_lus,
+        webhook_url=args.webhook
     )
     
     # Demander les identifiants

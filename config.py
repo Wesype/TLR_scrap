@@ -37,6 +37,9 @@ class TelecoursConfig:
     # Session
     session_id: str = "telerecours_session"
     
+    # Webhook
+    webhook_url: Optional[str] = None
+    
     def __post_init__(self):
         """Créer les dossiers si nécessaire"""
         self.output_dir.mkdir(parents=True, exist_ok=True)

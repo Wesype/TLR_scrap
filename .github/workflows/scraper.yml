@@ -1,0 +1,52 @@
+name: Scraper Télérecours TA93
+
+on:
+  # Exécution manuelle
+  workflow_dispatch:
+  
+  # Exécution automatique 3 fois par jour (8h, 14h, 20h UTC = 9h, 15h, 21h Paris)
+  schedule:
+    - cron: '0 8 * * *'   # 9h Paris
+    - cron: '0 14 * * *'  # 15h Paris
+    - cron: '0 20 * * *'  # 21h Paris
+
+jobs:
+  scrape:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+      
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+          playwright install chromium
+          playwright install-deps chromium
+      
+      - name: Run scraper
+        env:
+          TELERECOURS_USERNAME: ${{ secrets.TELERECOURS_USERNAME }}
+          TELERECOURS_PASSWORD: ${{ secrets.TELERECOURS_PASSWORD }}
+        run: |
+          python main.py \
+            --juridiction TA93 \
+            --messages-lus \
+            --webhook https://primary-production-94c2e.up.railway.app/webhook-test/467a3692-94de-45bc-a532-cf9feb8ad5e4
+      
+      - name: Upload artifacts (en cas d'erreur)
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: scraper-logs
+          path: |
+            extractions/
+            pdfs/
+          retention-days: 7
