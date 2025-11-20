@@ -12,8 +12,9 @@ import re
 import base64
 
 from config import TelecoursConfig
-from utils import save_json, save_html, compte_pdfs_dossier, taille_dossier_pdfs, normaliser_objet, generer_nom_fichier_courrier
+from utils import save_json, save_html, compte_pdfs_dossier, taille_dossier_pdfs, normaliser_objet, generer_nom_fichier_courrier, send_webhook
 from notifs import JuridictionNotification
+import time
 
 
 class MessageScraper:
@@ -22,6 +23,30 @@ class MessageScraper:
     def __init__(self, config: TelecoursConfig, cookies: Dict[str, str]):
         self.config = config
         self.cookies = cookies
+    
+    async def envoyer_message_webhook(self, message: Dict, code_juridiction: str):
+        """Envoie un message individuel au webhook
+        
+        Args:
+            message: Données du message à envoyer
+            code_juridiction: Code de la juridiction (ex: 'TA78')
+        """
+        payload = {
+            'timestamp': time.strftime('%Y-%m-%d %H:%M:%S'),
+            'code_juridiction': code_juridiction,
+            'message': message
+        }
+        
+        print(f"      📤 Envoi du message {message['msg_id']} au webhook...")
+        success = send_webhook(self.config.webhook_url, payload)
+        
+        if success:
+            print(f"      ✅ Message {message['msg_id']} envoyé avec succès")
+        else:
+            print(f"      ⚠️  Échec d'envoi du message {message['msg_id']}")
+        
+        # Petit délai pour ne pas surcharger le webhook
+        await asyncio.sleep(0.5)
     
     async def extraire_liens_pdf(self, html: str) -> Dict:
         """Extrait tous les liens PDF d'une page HTML"""
@@ -552,6 +577,10 @@ class MessageScraper:
             # msg['html_complet'] = result_detail.cleaned_html
             
             messages_details.append(msg)
+            
+            # Envoyer immédiatement ce message au webhook si configuré
+            if self.config.webhook_url:
+                await self.envoyer_message_webhook(msg, code_juridiction)
             
             # Retour à la liste
             js_retour = """
