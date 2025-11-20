@@ -1,5 +1,5 @@
 # Utiliser l'image officielle Playwright avec Python
-FROM mcr.microsoft.com/playwright/python:v1.56.0-noble
+FROM mcr.microsoft.com/playwright/python:v1.48.0-noble
 
 # Définir le répertoire de travail
 WORKDIR /app
@@ -7,8 +7,12 @@ WORKDIR /app
 # Copier les fichiers de dépendances
 COPY requirements.txt .
 
-# Installer les dépendances Python
+# Installer les dépendances Python (crawl4ai installera la version de Playwright dont il a besoin)
 RUN pip install --no-cache-dir -r requirements.txt
+
+# Installer les navigateurs Playwright pour la version installée par crawl4ai
+RUN playwright install chromium
+RUN playwright install-deps chromium
 
 # Copier le code source
 COPY . .
