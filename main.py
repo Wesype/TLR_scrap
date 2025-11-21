@@ -422,13 +422,16 @@ def main():
         print("❌ Mot de passe requis")
         return
     
-    # Demander le nombre de messages si non spécifié
+    # Définir le nombre de messages par défaut selon le mode
     if args.max_messages is None:
-        try:
-            nb_messages = input("Nombre de messages à scraper (défaut: 10) : ").strip()
-            args.max_messages = int(nb_messages) if nb_messages else 10
-        except ValueError:
+        if args.messages_lus:
+            # Mode test : limiter à 10 messages lus
             args.max_messages = 10
+            print(f"⚠️  Mode TEST : limitation à {args.max_messages} messages lus")
+        else:
+            # Mode production (non lus) : prendre tous les messages
+            args.max_messages = 100
+            print(f"📬 Mode notifications : scraping de tous les messages non lus (max {args.max_messages})")
     
     config.max_messages_par_juridiction = args.max_messages
     
