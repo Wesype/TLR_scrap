@@ -143,8 +143,9 @@ async def main_auto(config: TelecoursConfig):
         duration = time.time() - start_time
         print_summary(juridictions_traitees, total_messages, total_pdfs, duration)
         
-        # Les messages ont déjà été envoyés individuellement au webhook pendant le scraping
-        print("\n✅ Tous les messages ont été envoyés au webhook individuellement")
+        # Envoyer webhook si configuré
+        if config.webhook_url:
+            await envoyer_resultats_webhook(config, juridictions)
         
         await crawler.crawler_strategy.kill_session(config.session_id)
 
@@ -212,9 +213,9 @@ async def main_juridiction(config: TelecoursConfig, code_juridiction: str):
         
         print_summary(1, len(messages) if messages else 0, nb_pdfs, duration)
         
-        # Les messages ont déjà été envoyés individuellement au webhook pendant le scraping
-        if config.webhook_url and messages:
-            print(f"\n✅ {len(messages)} message(s) envoyé(s) au webhook individuellement")
+        # Envoyer webhook si configuré
+        if config.webhook_url:
+            await envoyer_resultats_webhook(config, [juridiction_cible])
         
         await crawler.crawler_strategy.kill_session(config.session_id)
 
