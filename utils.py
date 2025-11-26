@@ -213,6 +213,7 @@ def normaliser_objet(objet: str) -> str:
     # Règle 5: Mémoire en défense
     memoire_patterns = [
         "communication d'un mémoire et invitation à se désister (dnl)",
+        "communication de pièces et invitation à se désister (dnl)",
         "communication d'un mémoire en défense (référé)",
         "communication d'un mémoire en défense",
         "communication d'un mémoire"
