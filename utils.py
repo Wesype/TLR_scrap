@@ -181,7 +181,8 @@ def normaliser_objet(objet: str) -> str:
         "accusé de réception d'une requête en référé",
         "accusé de réception de la requête",
         "accusé de réception d'une requête",
-        "accusé de réception requête et demande de régularisation"
+        "accusé de réception requête et demande de régularisation",
+        "EXE - Accusé réception demande exécution décision"
     ]
     if objet_lower in ar_patterns:
         return "Accusé de réception (AR)"
