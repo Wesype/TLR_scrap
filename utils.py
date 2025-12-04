@@ -243,7 +243,8 @@ def normaliser_objet(objet: str) -> str:
     # Règle 8: Décision
     decision_patterns = [
         "notification d'une ordonnance de référé",
-        "notification de jugement"
+        "notification de jugement",
+        "Notification ordonnance L. 522-3 rejet référé d’urgence"
     ]
     if objet_lower in decision_patterns:
         return "Décision"
