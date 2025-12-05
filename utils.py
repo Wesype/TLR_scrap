@@ -261,7 +261,8 @@ def normaliser_objet(objet: str) -> str:
         "demande de maintien de la requête",
         "communication pour production de la réplique",
         "exe - classement",
-        "lettre du greffier"
+        "lettre du greffier",
+        "demande de pièces pour complèter l'instruction"
     ]
     if objet_lower in regularisation_patterns:
         return "Demande de régularisation"
