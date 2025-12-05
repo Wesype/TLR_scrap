@@ -249,8 +249,12 @@ def normaliser_objet(objet: str) -> str:
     if objet_lower in decision_patterns:
         return "Décision"
     
-    # Règle 9: Encombrement du rôle (reste inchangé)
-    if objet_lower == "encombrement du rôle":
+    # Règle 9: Encombrement du rôle
+    encombrement_patterns = [
+        "encombrement du rôle",
+        "enrôlement vraisemblable d'une affaire"
+    ]
+    if objet_lower in encombrement_patterns:
         return "Encombrement du rôle"
     
     # Règle 10: Demande de régularisation
