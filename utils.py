@@ -207,10 +207,11 @@ def normaliser_objet(objet: str) -> str:
     audience_patterns = [
         "avis de renvoi à une autre audience",
         "avis d'audience",
-        "accusé de réception référé et avis d'audience (urgence)"
+        "accusé de réception référé et avis d'audience (urgence)",
+        "accusé de réception requête en référé et avis d'audience"
     ]
     if objet_lower in audience_patterns:
-        return "Avis d'audience"
+        return "Avis d'audience (requête en référé)"
     
     # Règle 5: Mémoire en défense
     memoire_patterns = [
@@ -268,7 +269,8 @@ def normaliser_objet(objet: str) -> str:
         "exe - classement",
         "lettre du greffier",
         "demande de pièces pour complèter l'instruction",
-        "lettre de demande de désistement explicite"
+        "lettre de demande de désistement explicite",
+        "lettre d'information r.611-11-1 cja"
     ]
     if objet_lower in regularisation_patterns:
         return "Demande de régularisation"
