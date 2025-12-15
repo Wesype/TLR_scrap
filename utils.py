@@ -206,12 +206,12 @@ def normaliser_objet(objet: str) -> str:
     # Règle 4: Avis d'audience
     audience_patterns = [
         "avis de renvoi à une autre audience",
-        "avis d'audience",
+        "Avis d'audience (requête en référé)",
         "accusé de réception référé et avis d'audience (urgence)",
         "accusé de réception requête en référé et avis d'audience"
     ]
     if objet_lower in audience_patterns:
-        return "Avis d'audience (requête en référé)"
+        return "Avis d'audience"
     
     # Règle 5: Mémoire en défense
     memoire_patterns = [
