@@ -208,7 +208,8 @@ def normaliser_objet(objet: str) -> str:
         "avis de renvoi à une autre audience",
         "Avis d'audience (requête en référé)",
         "accusé de réception référé et avis d'audience (urgence)",
-        "accusé de réception requête en référé et avis d'audience"
+        "accusé de réception requête en référé et avis d'audience",
+        "avis d'audience"
     ]
     if objet_lower in audience_patterns:
         return "Avis d'audience"
