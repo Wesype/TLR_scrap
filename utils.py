@@ -210,7 +210,7 @@ def normaliser_objet(objet: str) -> str:
         "accusé de réception référé et avis d'audience (urgence)",
         "accusé de réception requête en référé et avis d'audience",
         "avis d'audience",
-        "avis d'audience (éloignement)"
+        "Avis d'audience (éloignement)"
     ]
     if objet_lower in audience_patterns:
         return "Avis d'audience"
@@ -276,6 +276,13 @@ def normaliser_objet(objet: str) -> str:
     ]
     if objet_lower in regularisation_patterns:
         return "Demande de régularisation"
+    
+    # Règle 11: Avis de radiation
+    radiation_patterns = [
+        "avis de radiation"
+    ]
+    if objet_lower in radiation_patterns:
+        return "Avis de radiation"
     
     # Si aucune règle ne correspond, retourner "Objet inconnu"
     return "Objet inconnu"
